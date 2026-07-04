@@ -485,6 +485,7 @@ extern void R_LerpVerts(qboolean powerUpEffect, int nverts,
 		const float frontv[3], const float backv[3], const float *scale);
 extern void R_ConvertNormalMDL(byte in_normal, signed char *normal);
 extern vec4_t *R_VertBufferRealloc(int num);
+extern float r_byteNormalScale[256];
 extern void R_VertBufferInit(void);
 extern void R_VertBufferFree(void);
 extern void R_GenFanIndexes(unsigned short *data, unsigned from, unsigned to);
@@ -565,8 +566,8 @@ extern cvar_t *vid_fullscreen;
 extern cvar_t *vid_gamma;
 extern cvar_t *viewsize;
 
+Q2_DLL_EXPORTED refexport_t GetRefAPI(refimport_t imp);
 extern void R_CombineBlendWithFog(float *v_blend, qboolean native_fog);
-
 extern void R_InitCvar(void);
 
 #endif /* SRC_CLIENT_REFRESH_REF_SHARED_H_ */

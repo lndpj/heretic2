@@ -140,7 +140,7 @@ DrawAliasFrameLerpCommands(dmdx_t *paliashdr, entity_t* entity, vec3_t shadeligh
 				/* unpack normal */
 				for (n = 0; n < 3; n++)
 				{
-					normal[n] = verts[index_xyz].normal[n] / 127.f;
+					normal[n] = r_byteNormalScale[(unsigned char)verts[index_xyz].normal[n]];
 				}
 
 				/* normals and vertexes come from the frame list */
@@ -524,8 +524,6 @@ GL3_DrawAliasModel(entity_t *currententity)
 
 	if (currententity->flags & RF_WEAPONMODEL)
 	{
-		extern hmm_mat4 GL3_SetPerspective(GLdouble fovy);
-
 		origProjViewMat = gl3state.uni3DData.transProjViewMat4;
 
 		// render weapon with a different FOV (r_gunfov) so it's not distorted at high view FOV

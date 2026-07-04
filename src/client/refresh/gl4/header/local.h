@@ -221,6 +221,10 @@ typedef struct
 	gl4ShaderInfo_t si2DpostProcess; // shader to render postprocess FBO, when *not* underwater
 	gl4ShaderInfo_t si2DpostProcessWater; // shader to apply water-warp postprocess effect
 
+	/* bloom */
+	gl4ShaderInfo_t si2DbloomBright;
+	gl4ShaderInfo_t si2DbloomBlur;
+
 	gl4ShaderInfo_t si3Dlm;        // a regular opaque face (e.g. from brush) with lightmap
 	// TODO: lm-only variants for r_lightmap 1
 	gl4ShaderInfo_t si3Dtrans;     // transparent is always w/o lightmap
@@ -368,8 +372,8 @@ GL4_BindEBO(GLuint ebo)
 }
 
 extern void GL4_BufferAndDraw3D(const mvtx_t* verts, int numVerts, GLenum drawMode);
-
 extern void GL4_RotateForEntity(entity_t *e);
+extern hmm_mat4 GL4_SetPerspective(GLdouble fovy);
 
 // gl4_sdl.c
 extern int GL4_InitContext(void* win);
@@ -502,16 +506,9 @@ extern cvar_t *gl4_colorlight;
 extern cvar_t *gl_polyblend;
 extern cvar_t *gl4_debugcontext;
 
-/* bloom */
-extern gl4ShaderInfo_t gl4_bloomBright;
-extern gl4ShaderInfo_t gl4_bloomBlur;
-extern gl4ShaderInfo_t gl4_bloomComposite;
-
 extern cvar_t *r_bloom;
 
 GLuint GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH);
-qboolean GL4_InitBloomShaders(void);
 void GL4_BloomShutdown(void);
-void GL4_ShutdownBloomShaders(void);
 
 #endif /* SRC_CLIENT_REFRESH_GL4_HEADER_LOCAL_H_ */

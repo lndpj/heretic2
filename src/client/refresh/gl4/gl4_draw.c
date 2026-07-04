@@ -39,9 +39,11 @@ static stbtt_bakedchar *draw_fontcodes = NULL;
 static qboolean draw_chars_has_alt;
 
 static GLuint vbo2D = 0, vao2D = 0, vao2Dcolor = 0; // vao2D is for textured rendering, vao2Dcolor for color-only
-static GLuint bloomTex[2] = {0,0};
-static GLuint bloomFBO[2] = {0,0};
 static qboolean bloomInitialized = false;
+
+#define BLOOM_TEXTURES 2
+static GLuint bloomTex[BLOOM_TEXTURES] = {0, 0};
+static GLuint bloomFBO[BLOOM_TEXTURES] = {0, 0};
 
 void R_LoadTTFFont(const char *ttffont, int vid_height, float *r_font_size,
 	int *r_font_height, stbtt_bakedchar **draw_fontcodes,
@@ -56,7 +58,9 @@ GL4_Draw_InitLocal(void)
 
 	draw_chars = R_LoadConsoleChars((findimage_t)GL4_FindImage);
 	/* Heretic 2 uses more than 128 symbols in image */
-	draw_chars_has_alt = !(draw_chars && !strcmp(draw_chars->name, "pics/misc/conchars.m32"));
+	draw_chars_has_alt = (draw_chars && (
+		strcmp(draw_chars->name, "pics/misc/conchars.m8") &&
+		strcmp(draw_chars->name, "pics/misc/conchars.m32")));
 
 	// set up attribute layout for 2D textured rendering
 	glGenVertexArrays(1, &vao2D);
@@ -398,7 +402,7 @@ GL4_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const f
 	qboolean bloomActive = false;
 
 	/* check for r_bloom */
-	if (r_bloom && r_bloom->value != 0.0f)
+	if (r_bloom && r_bloom->value)
 	{
 		GLuint bloom = GL4_ApplyBloom(fboTexture, w, h);
 		if (bloom != 0)
@@ -425,6 +429,12 @@ GL4_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const f
 	if (shader->uniVblend != -1)
 	{
 		glUniform4fv(shader->uniVblend, 1, v_blend);
+	}
+
+	if (!r_bloom || !r_bloom->value)
+	{
+		drawTexturedRectangle(x, y, w, h, 0, 1, 1, 0);
+		return;
 	}
 
 	/*
@@ -536,7 +546,8 @@ GL4_Draw_Flash(const float color[4], float x, float y, float w, float h)
 
 	glEnable(GL_BLEND);
 
-	/* this blends the screen flash while bloom is enabled */
+	/* this blends the screen flash while bloom is enabled
+	 * TODO: disable broke fixing window on disable bloom */
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	for (i = 0; i < 4; ++i)
@@ -632,7 +643,8 @@ GL4_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, const byte *
 }
 
 /* draw a fullscreen quad using the existing vao2D/vbo2D */
-static void GL4_DrawFullscreenQuadFromArray(const GLfloat fsQuad[16])
+static void
+GL4_DrawFullscreenQuadFromArray(const GLfloat fsQuad[16])
 {
 	GL4_BindVAO(vao2D);
 	GL4_BindVBO(vbo2D);
@@ -642,23 +654,24 @@ static void GL4_DrawFullscreenQuadFromArray(const GLfloat fsQuad[16])
 }
 
 /* Shutdown bloom resources */
-void GL4_BloomShutdown(void)
+void
+GL4_BloomShutdown(void)
 {
-	if (bloomFBO[0])
+	size_t i;
+
+	for (i = 0; i < BLOOM_TEXTURES; i++)
 	{
-		glDeleteFramebuffers(1, &bloomFBO[0]); bloomFBO[0] = 0;
-	}
-	if (bloomFBO[1])
-	{
-		glDeleteFramebuffers(1, &bloomFBO[1]); bloomFBO[1] = 0;
-	}
-	if (bloomTex[0])
-	{
-		glDeleteTextures(1, &bloomTex[0]); bloomTex[0] = 0;
-	}
-	if (bloomTex[1])
-	{
-		glDeleteTextures(1, &bloomTex[1]); bloomTex[1] = 0;
+		if (bloomFBO[i])
+		{
+			glDeleteFramebuffers(1, &bloomFBO[i]);
+			bloomFBO[i] = 0;
+		}
+
+		if (bloomTex[i])
+		{
+			glDeleteTextures(1, &bloomTex[i]);
+			bloomTex[i] = 0;
+		}
 	}
 
 	bloomInitialized = false;
@@ -670,13 +683,18 @@ void GL4_BloomShutdown(void)
  * Returns: GLuint of the composite bloom texture.
  * Caller must delete the returned texture when done.
  */
-GLuint GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH)
+GLuint
+GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH)
 {
-	if (!r_bloom || r_bloom->value == 0.0f)
-		return 0;
+	GLint locTex, locDir;
 
-	int w = (sceneW > 0) ? sceneW : 1;
-	int h = (sceneH > 0) ? sceneH : 1;
+	if (!r_bloom || !r_bloom->value)
+	{
+		return 0;
+	}
+
+	int w = Q_max(sceneW, 1);
+	int h = Q_max(sceneH, 1);
 
 	int downscale = 2;
 	int bw = (w / downscale) > 0 ? (w / downscale) : 1;
@@ -741,7 +759,9 @@ GLuint GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH)
 	glBindFramebuffer(GL_FRAMEBUFFER, fboComp);
 
 	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
 		goto fail;
+	}
 
 	/* save old viewport */
 	glGetIntegerv(GL_VIEWPORT, oldViewPort);
@@ -765,64 +785,74 @@ GLuint GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH)
 	glViewport(0, 0, bw, bh);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	if (gl4_bloomBright.shaderProgram)
+	GL4_UseProgram(gl4state.si2DbloomBright.shaderProgram);
+
+	GL4_SelectTMU(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, sceneTex);
+	locTex = glGetUniformLocation(gl4state.si2DbloomBright.shaderProgram, "tex");
+
+	if (locTex != -1)
 	{
-		GL4_UseProgram(gl4_bloomBright.shaderProgram);
-
-		GL4_SelectTMU(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, sceneTex);
-		GLint locTex = glGetUniformLocation(gl4_bloomBright.shaderProgram, "tex");
-		if (locTex != -1) glUniform1i(locTex, 0);
-
-		/* playable default value */
-		float threshold = 0.75f;
-		GLint locThreshold = glGetUniformLocation(gl4_bloomBright.shaderProgram, "threshold");
-		if (locThreshold != -1) glUniform1f(locThreshold, threshold);
-
-		GL4_DrawFullscreenQuadFromArray(fsQuadDown);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glUniform1i(locTex, 0);
 	}
+
+	/* playable default value */
+	float threshold = 0.75f;
+	GLint locThreshold = glGetUniformLocation(gl4state.si2DbloomBright.shaderProgram, "threshold");
+	if (locThreshold != -1)
+	{
+		glUniform1f(locThreshold, threshold);
+	}
+
+	GL4_DrawFullscreenQuadFromArray(fsQuadDown);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	/* blur pass */
-	if (gl4_bloomBlur.shaderProgram)
+	locTex = glGetUniformLocation(gl4state.si2DbloomBlur.shaderProgram, "tex");
+	locDir = glGetUniformLocation(gl4state.si2DbloomBlur.shaderProgram, "dir");
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fboPing);
+	glViewport(0, 0, bw, bh);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	GL4_UseProgram(gl4state.si2DbloomBlur.shaderProgram);
+	GL4_SelectTMU(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texBright);
+
+	if (locTex != -1)
 	{
-		GLint locTex = glGetUniformLocation(gl4_bloomBlur.shaderProgram, "tex");
-		GLint locDir = glGetUniformLocation(gl4_bloomBlur.shaderProgram, "dir");
-
-		glBindFramebuffer(GL_FRAMEBUFFER, fboPing);
-		glViewport(0, 0, bw, bh);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		GL4_UseProgram(gl4_bloomBlur.shaderProgram);
-		GL4_SelectTMU(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, texBright);
-
-		if (locTex != -1)
-			glUniform1i(locTex, 0);
-
-		if (locDir != -1)
-			glUniform2f(locDir, 1.0f / (float)bw, 0.0f);
-
-		GL4_DrawFullscreenQuadFromArray(fsQuadDown);
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-		/* vertical blur */
-		glBindFramebuffer(GL_FRAMEBUFFER, fboBright);
-		glViewport(0, 0, bw, bh);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		GL4_UseProgram(gl4_bloomBlur.shaderProgram);
-		GL4_SelectTMU(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, texPing);
-
-		if (locTex != -1)
-			glUniform1i(locTex, 0);
-		if (locDir != -1)
-			glUniform2f(locDir, 0.0f, 1.0f / (float)bh);
-
-		GL4_DrawFullscreenQuadFromArray(fsQuadDown);
-		glBindTexture(GL_TEXTURE_2D, 0);
+		glUniform1i(locTex, 0);
 	}
+
+	if (locDir != -1)
+	{
+		glUniform2f(locDir, 1.0f / (float)bw, 0.0f);
+	}
+
+	GL4_DrawFullscreenQuadFromArray(fsQuadDown);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	/* vertical blur */
+	glBindFramebuffer(GL_FRAMEBUFFER, fboBright);
+	glViewport(0, 0, bw, bh);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	GL4_UseProgram(gl4state.si2DbloomBlur.shaderProgram);
+	GL4_SelectTMU(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texPing);
+
+	if (locTex != -1)
+	{
+		glUniform1i(locTex, 0);
+	}
+
+	if (locDir != -1)
+	{
+		glUniform2f(locDir, 0.0f, 1.0f / (float)bh);
+	}
+
+	GL4_DrawFullscreenQuadFromArray(fsQuadDown);
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	/* composite pass*/
 	glBindFramebuffer(GL_FRAMEBUFFER, fboComp);
@@ -867,17 +897,34 @@ GLuint GL4_ApplyBloom(GLuint sceneTex, int sceneW, int sceneH)
 
 fail:
 	if (fboBright)
+	{
 		glDeleteFramebuffers(1, &fboBright);
+	}
+
 	if (fboPing)
+	{
 		glDeleteFramebuffers(1, &fboPing);
+	}
+
 	if (fboComp)
+	{
 		glDeleteFramebuffers(1, &fboComp);
+	}
+
 	if (texBright)
+	{
 		glDeleteTextures(1, &texBright);
+	}
+
 	if (texPing)
+	{
 		glDeleteTextures(1, &texPing);
+	}
+
 	if (texComp)
+	{
 		glDeleteTextures(1, &texComp);
+	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	return 0;

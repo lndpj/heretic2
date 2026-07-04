@@ -29,9 +29,6 @@
 #include "../header/client.h"
 #include "header/qmenu.h"
 
-void IN_GetClipboardText(char *out, size_t n);
-int IN_SetClipboardText(const char *s);
-
 static void Action_Draw(menuaction_s *a);
 static void Menu_DrawStatusBar(const char *string);
 static void MenuList_Draw(menulist_s *l);
@@ -391,7 +388,7 @@ Menu_AdjustCursor(menuframework_s *menu, int dir)
 	/* see if it's in a valid spot */
 	if ((menu->cursor >= 0) && (menu->cursor < menu->nitems))
 	{
-		if ((citem = Menu_ItemAtCursor(menu)) != 0)
+		if ((citem = Menu_ItemAtCursor(menu)) != NULL)
 		{
 			if (citem->type != MTYPE_SEPARATOR &&
 				(citem->flags & QMF_INACTIVE) != QMF_INACTIVE)
@@ -596,7 +593,7 @@ Menu_ItemAtCursor(menuframework_s *m)
 {
 	if ((m->cursor < 0) || (m->cursor >= m->nitems))
 	{
-		return 0;
+		return NULL;
 	}
 
 	return m->items[m->cursor];

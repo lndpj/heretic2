@@ -27,10 +27,6 @@
 
 #include "header/local.h"
 
-gl4ShaderInfo_t gl4_bloomBright;
-gl4ShaderInfo_t gl4_bloomBlur;
-gl4ShaderInfo_t gl4_bloomComposite;
-
 // TODO: remove eprintf() usage
 #define eprintf(...)  R_Printf(PRINT_ALL, __VA_ARGS__)
 
@@ -1144,35 +1140,6 @@ static const char* fragmentBloomBlur = MULTILINE_STRING(
 		}
 );
 
-static const char* fragmentBloomComposite = MULTILINE_STRING(
-
-		in vec2 passTexCoord;
-
-		layout (std140) uniform uniCommon
-		{
-			float gamma;
-			float intensity;
-			float intensity2D;
-			vec4  color;
-		};
-
-		uniform sampler2D sceneTex;
-		uniform sampler2D bloomTex;
-
-		out vec4 outColor;
-
-		void main()
-		{
-			vec3 scene = texture(sceneTex, passTexCoord).rgb;
-			vec3 bloom = texture(bloomTex, passTexCoord).rgb;
-
-			float bloomStrength = 1.5 * intensity;
-
-			vec3 res = scene + bloom * bloomStrength;
-			outColor = vec4(res, 1.0);
-		}
-);
-
 #undef MULTILINE_STRING
 
 enum {
@@ -1190,7 +1157,8 @@ initShader2D(gl4ShaderInfo_t* shaderInfo, const char* vertSrc, const char* fragS
 
 	if (shaderInfo->shaderProgram != 0)
 	{
-		Com_Printf("WARNING: calling initShader2D for gl4ShaderInfo_t that already has a shaderProgram!\n");
+		Com_Printf("WARNING: calling %s for gl4ShaderInfo_t that already has a shaderProgram!\n",
+			__func__);
 		glDeleteProgram(shaderInfo->shaderProgram);
 	}
 
@@ -1283,73 +1251,6 @@ err_cleanup:
 	glDeleteProgram(prog);
 
 	return false;
-}
-
-qboolean
-GL4_InitBloomShaders(void)
-{
-	memset(&gl4_bloomBright,     0, sizeof(gl4_bloomBright));
-	memset(&gl4_bloomBlur,       0, sizeof(gl4_bloomBlur));
-	memset(&gl4_bloomComposite,  0, sizeof(gl4_bloomComposite));
-
-	/* bright */
-	if(!initShader2D(&gl4_bloomBright, vertexBloomSrcFullScreen, fragmentBloomBright))
-	{
-		R_Printf(PRINT_ALL, "GL4_InitBloomShaders: bright shader failed\n");
-		return false;
-	}
-
-	/* blur */
-	if(!initShader2D(&gl4_bloomBlur, vertexBloomSrcFullScreen, fragmentBloomBlur))
-	{
-		R_Printf(PRINT_ALL, "GL4_InitBloomShaders: blur shader failed\n");
-		if(gl4_bloomBright.shaderProgram)
-		{
-			glDeleteProgram(gl4_bloomBright.shaderProgram);
-			gl4_bloomBright.shaderProgram = 0;
-		}
-		return false;
-	}
-
-	/* composite */
-	if(!initShader2D(&gl4_bloomComposite, vertexBloomSrcFullScreen, fragmentBloomComposite))
-	{
-		R_Printf(PRINT_ALL, "GL4_InitBloomShaders: composite shader failed\n");
-
-		if(gl4_bloomBright.shaderProgram)
-		{
-			glDeleteProgram(gl4_bloomBright.shaderProgram);
-			gl4_bloomBright.shaderProgram = 0;
-		}
-		if(gl4_bloomBlur.shaderProgram)
-		{
-			glDeleteProgram(gl4_bloomBlur.shaderProgram);
-			gl4_bloomBlur.shaderProgram = 0;
-		}
-		return false;
-	}
-
-	return true;
-}
-
-/* shutdown bloom shader */
-void GL4_ShutdownBloomShaders(void)
-{
-	if (gl4_bloomBright.shaderProgram)
-	{
-		glDeleteProgram(gl4_bloomBright.shaderProgram);
-		gl4_bloomBright.shaderProgram = 0;
-	}
-	if (gl4_bloomBlur.shaderProgram)
-	{
-		glDeleteProgram(gl4_bloomBlur.shaderProgram);
-		gl4_bloomBlur.shaderProgram = 0;
-	}
-	if (gl4_bloomComposite.shaderProgram)
-	{
-		glDeleteProgram(gl4_bloomComposite.shaderProgram);
-		gl4_bloomComposite.shaderProgram = 0;
-	}
 }
 
 static qboolean
@@ -1490,7 +1391,10 @@ err_cleanup:
 	glDeleteShader(shaders3D[0]);
 	glDeleteShader(shaders3D[1]);
 
-	if (prog != 0)  glDeleteProgram(prog);
+	if (prog != 0)
+	{
+		glDeleteProgram(prog);
+	}
 
 	return false;
 }
@@ -1540,7 +1444,8 @@ static void initUBOs(void)
 	gl4state.currentUBO = gl4state.uniLightsUBO;
 }
 
-static qboolean createShaders(void)
+static qboolean
+createShaders(void)
 {
 	if (!initShader2D(&gl4state.si2D, vertexSrc2D, fragmentSrc2D))
 	{
@@ -1565,9 +1470,24 @@ static qboolean createShaders(void)
 		Com_Printf("WARNING: Failed to create shader program to render framebuffer object!\n");
 		return false;
 	}
+
 	if (!initShader2D(&gl4state.si2DpostProcessWater, vertexSrc2D, fragmentSrc2DpostprocessWater))
 	{
 		Com_Printf("WARNING: Failed to create shader program to render framebuffer object under water!\n");
+		return false;
+	}
+
+	/* bright */
+	if(!initShader2D(&gl4state.si2DbloomBright, vertexBloomSrcFullScreen, fragmentBloomBright))
+	{
+		R_Printf(PRINT_ALL, "GL4_InitBloomShaders: bright shader failed\n");
+		return false;
+	}
+
+	/* blur */
+	if(!initShader2D(&gl4state.si2DbloomBlur, vertexBloomSrcFullScreen, fragmentBloomBlur))
+	{
+		R_Printf(PRINT_ALL, "GL4_InitBloomShaders: blur shader failed\n");
 		return false;
 	}
 
@@ -1579,58 +1499,61 @@ static qboolean createShaders(void)
 		Com_Printf("WARNING: Failed to create shader program for textured 3D rendering with lightmap!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3Dtrans, vertexSrc3D, fragmentSrc3D))
 	{
 		Com_Printf("WARNING: Failed to create shader program for rendering translucent 3D things!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3DcolorOnly, vertexSrc3D, fragmentSrc3Dcolor))
 	{
 		Com_Printf("WARNING: Failed to create shader program for flat-colored 3D rendering!\n");
 		return false;
 	}
-	/*
-	if (!initShader3D(&gl4state.si3Dlm, vertexSrc3Dlm, fragmentSrc3D))
-	{
-		Com_Printf("WARNING: Failed to create shader program for blending 3D lightmaps rendering!\n");
-		return false;
-	}
-	*/
+
 	if (!initShader3D(&gl4state.si3Dturb, vertexSrc3Dwater, fragmentSrc3Dwater))
 	{
 		Com_Printf("WARNING: Failed to create shader program for water rendering!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3DlmFlow, vertexSrc3DlmFlow, lightmappedFrag))
 	{
 		Com_Printf("WARNING: Failed to create shader program for scrolling textured 3D rendering with lightmap!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3DtransFlow, vertexSrc3Dflow, fragmentSrc3D))
 	{
 		Com_Printf("WARNING: Failed to create shader program for scrolling textured translucent 3D rendering!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3Dsky, vertexSrc3D, fragmentSrc3Dsky))
 	{
 		Com_Printf("WARNING: Failed to create shader program for sky rendering!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3Dsprite, vertexSrc3D, fragmentSrc3Dsprite))
 	{
 		Com_Printf("WARNING: Failed to create shader program for sprite rendering!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3DspriteAlpha, vertexSrc3D, fragmentSrc3DspriteAlpha))
 	{
 		Com_Printf("WARNING: Failed to create shader program for alpha-tested sprite rendering!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3Dalias, vertexSrcAlias, fragmentSrcAlias))
 	{
 		Com_Printf("WARNING: Failed to create shader program for rendering textured models!\n");
 		return false;
 	}
+
 	if (!initShader3D(&gl4state.si3DaliasColor, vertexSrcAlias, fragmentSrcAliasColor))
 	{
 		Com_Printf("WARNING: Failed to create shader program for rendering flat-colored models!\n");
@@ -1666,7 +1589,11 @@ static void deleteShaders(void)
 	const gl4ShaderInfo_t siZero = {0};
 	for (gl4ShaderInfo_t* si = &gl4state.si2D; si <= &gl4state.siParticle; ++si)
 	{
-		if (si->shaderProgram != 0)  glDeleteProgram(si->shaderProgram);
+		if (si->shaderProgram != 0)
+		{
+			glDeleteProgram(si->shaderProgram);
+		}
+
 		*si = siZero;
 	}
 }
